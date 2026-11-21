@@ -61,7 +61,7 @@ th{background:var(--bg)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
-const DEFAULT_GAS_URL = "https://github.com/tzosa-debug/tzuchi-honor/blob/main/index.html";
+const DEFAULT_GAS_URL = "https://script.google.com/a/macros/tcsh.tn.edu.tw/s/AKfycbwX2uxRb6nfvaSBRvZY_sfFxGHKcpBbD8b-Ith2ZHc0kCSDehB8Ud5BqjxnePRUsbngiQ/exec";
 const G = ["", "一", "二", "三", "四", "五", "六"];
 const AW = { clean: "環境整潔獎", order: "秩序禮貌獎" };
 const DEF = ["知足", "感恩", "善解", "包容", "合心"];
@@ -90,29 +90,35 @@ let syncMsg = "尚未同步";
 let saveTimer = null;
 
 function ensureDefaultYear() {
-  if (!cfg.years["115"]) {
-    cfg.years["115"] = {
-      classes: Object.fromEntries([1, 2, 3, 4, 5, 6].map(g => [g, [...DEF]])),
-      weeks: [
-        { id: "w115_1_13", sem: "1", no: 13, start: "2026-11-23", end: "2026-11-27", duty: "甘芳璇" }
+  if (!cfg.years["115"]) cfg.years["115"] = {};
+  if (!cfg.years["115"].classes) {
+    cfg.years["115"].classes = Object.fromEntries([1, 2, 3, 4, 5, 6].map(g => [g, [...DEF]]));
+  }
+  if (!cfg.years["115"].weeks || !cfg.years["115"].weeks.length) {
+    cfg.years["115"].weeks = [
+      { id: "w115_1_13", sem: "1", no: 13, start: "2026-11-23", end: "2026-11-27", duty: "甘芳璇" }
+    ];
+  }
+  if (!cfg.years["115"].rubric) {
+    cfg.years["115"].rubric = {
+      clean: [
+        { id: "c1", name: "教室地面整潔", type: "add", pts: 1 },
+        { id: "c2", name: "掃具擺放整齊", type: "add", pts: 1 },
+        { id: "c3", name: "地面有垃圾", type: "sub", pts: 1 }
       ],
-      rubric: {
-        clean: [
-          { id: "c1", name: "教室地面整潔", type: "add", pts: 1 },
-          { id: "c2", name: "掃具擺放整齊", type: "add", pts: 1 },
-          { id: "c3", name: "地面有垃圾", type: "sub", pts: 1 }
-        ],
-        order: [
-          { id: "o1", name: "上下樓梯安靜", type: "add", pts: 1 },
-          { id: "o2", name: "主動問好有禮貌", type: "add", pts: 1 },
-          { id: "o3", name: "走廊奔跑喧嘩", type: "sub", pts: 1 }
-        ]
-      }
+      order: [
+        { id: "o1", name: "上下樓梯安靜", type: "add", pts: 1 },
+        { id: "o2", name: "主動問好有禮貌", type: "add", pts: 1 },
+        { id: "o3", name: "走廊奔跑喧嘩", type: "sub", pts: 1 }
+      ]
     };
   }
-  if (!cfg.gasUrl) cfg.gasUrl = DEFAULT_GAS_URL;
-  if (!S.week && cfg.years["115"]?.weeks?.length) {
-    S.week = cfg.years["115"].weeks[0].id;
+  if (!cfg.gasUrl || cfg.gasUrl.includes("github.com/")) {
+    cfg.gasUrl = DEFAULT_GAS_URL;
+  }
+  const curWeeks = weeks();
+  if ((!S.week || !curWeeks.some(w => w.id === S.week)) && curWeeks.length) {
+    S.week = curWeeks[0].id;
   }
 }
 
@@ -133,13 +139,18 @@ async function pullFromGas(showAlert = false) {
     const res = await fetch(url, { method: "GET" });
     const data = await res.json();
     if (data && typeof data === "object") {
-      if (data.cfg && data.cfg.years) cfg = { ...cfg, ...data.cfg, gasUrl: url };
+      if (data.cfg && data.cfg.years) {
+        const prev115 = cfg.years["115"] || {};
+        cfg = { ...cfg, ...data.cfg, gasUrl: url };
+        cfg.years["115"] = { ...prev115, ...(data.cfg.years["115"] || {}) };
+      }
       if (data.recs) recs = data.recs;
       if (data.dress) dress = data.dress;
       if (data.results) results = data.results;
       ensureDefaultYear();
       saveLocalAll();
-      syncMsg = "✓ 已從雲端同步（" + new Date().toLocaleTimeString("zh-TW", { hour12: false }) + "）";
+      const dutyNote = data.dutySheetSync?.ok ? "（含最新導護表）" : "";
+      syncMsg = "✓ 已從雲端同步" + dutyNote + "（" + new Date().toLocaleTimeString("zh-TW", { hour12: false }) + "）";
       if (showAlert) alert("雲端連線成功，已讀取最新資料！");
     }
   } catch (err) {
@@ -333,7 +344,7 @@ function dressTab(wk) {
 
   h += `<div class="card">
     <h2>${G[S.grade]}年${esc(cl[S.cls])}班｜服裝儀容抽檢（計入秩序禮貌獎）</h2>
-    <div style="margin-bottom:8px"><label>正導護教師</label><input data-c="dinsp" value="${esc(S.insp || wk.duty || "")}" placeholder="輸入正導護姓名"></div>`;
+    <div style="margin-bottom:8px"><label>正導護教師</label><input data-c="dinsp" value="${esc(wk.duty || S.insp || "")}" placeholder="輸入正導護姓名"></div>`;
   if (!r) {
     h += `<button class="pri" style="width:100%" data-a="draw">隨機抽檢</button>`;
   } else if (r.status !== "done") {
@@ -382,7 +393,7 @@ function adminTab() {
       <button class="sm" data-a="testgas">測試讀取雲端</button>
       <button class="sm" data-a="push">立即推送至雲端</button>
     </div>
-    <p class="mut" style="margin:8px 0 0">提示：請填入部署為「網頁應用程式」後結尾為 <code>/exec</code> 的網址，不要填入 <code>/dev</code> 或 <code>/library</code> 網址。</p>
+    <p class="mut" style="margin:8px 0 0">提示：請填入部署為「網頁應用程式」後結尾為 <code>/exec</code> 的網址，不要填入 <code>/dev</code>、<code>/library</code> 或 GitHub 網址。</p>
   </div>
   <div class="card">
     <h2>二、115學年度各年級班級數（4班或5班）</h2>
@@ -456,7 +467,8 @@ document.addEventListener("click", e => {
     scheduleAutoSave();
   }
   else if (a === "draw") {
-    const by = (S.insp || prompt("請輸入正導護教師姓名") || "").trim();
+    const wk = weeks().find(w => w.id === S.week) || weeks()[0];
+    const by = (wk?.duty || S.insp || prompt("請輸入正導護教師姓名") || "").trim();
     if (!by) return;
     S.insp = by;
     const x = new Uint32Array(1);
